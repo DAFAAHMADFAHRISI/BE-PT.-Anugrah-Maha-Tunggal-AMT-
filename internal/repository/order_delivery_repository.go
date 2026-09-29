@@ -9,6 +9,7 @@ import (
 type RentalOrderRepository interface {
 	FindAll(status string) ([]domain.RentalOrder, error)
 	FindByID(id uint) (*domain.RentalOrder, error)
+	FindByOrderNumber(orderNumber string) (*domain.RentalOrder, error)
 	Create(order *domain.RentalOrder) error
 	Update(order *domain.RentalOrder) error
 	UpdateStatus(id uint, status string) error
@@ -37,6 +38,12 @@ func (r *rentalOrderRepository) FindAll(status string) ([]domain.RentalOrder, er
 func (r *rentalOrderRepository) FindByID(id uint) (*domain.RentalOrder, error) {
 	var order domain.RentalOrder
 	err := r.db.Preload("Customer").Preload("Unit").Preload("Creator").First(&order, id).Error
+	return &order, err
+}
+
+func (r *rentalOrderRepository) FindByOrderNumber(orderNumber string) (*domain.RentalOrder, error) {
+	var order domain.RentalOrder
+	err := r.db.Where("order_number = ?", orderNumber).First(&order).Error
 	return &order, err
 }
 

@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS delivery_letters (
     unit_id INT NOT NULL,
     operator_id INT NOT NULL,
     issue_date DATE NOT NULL,
-    departure_time TIME,
+    departure_time VARCHAR(50),
     job_description TEXT,
     recipient_name VARCHAR(100),
     operational_status ENUM('ASSIGNED', 'ON_THE_WAY', 'WORKING', 'FINISHED') NOT NULL DEFAULT 'ASSIGNED',

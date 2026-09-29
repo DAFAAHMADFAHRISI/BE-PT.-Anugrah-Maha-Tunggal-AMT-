@@ -41,7 +41,19 @@ func (s *orderService) CreateOrder(order *domain.RentalOrder) error {
 	if order.OrderNumber == "" {
 		now := time.Now()
 		count, _ := s.orderRepo.Count()
-		order.OrderNumber = fmt.Sprintf("ORD-%s-%04d", now.Format("200601"), count+1)
+		// Coba nomor berturut-turut untuk menghindari duplikat
+		for i := count + 1; i <= count+100; i++ {
+			candidate := fmt.Sprintf("ORD-%s-%04d", now.Format("200601"), i)
+			_, err := s.orderRepo.FindByOrderNumber(candidate)
+			if err != nil {
+				// Tidak ditemukan = nomor tersedia
+				order.OrderNumber = candidate
+				break
+			}
+		}
+		if order.OrderNumber == "" {
+			order.OrderNumber = fmt.Sprintf("ORD-%s-%04d", now.Format("200601"), count+1)
+		}
 	}
 	if order.OrderDate == "" {
 		order.OrderDate = time.Now().Format("2006-01-02")

@@ -109,7 +109,7 @@ type DeliveryLetter struct {
 	OperatorID        uint          `gorm:"not null" json:"operator_id"`
 	Operator          *Operator     `gorm:"foreignKey:OperatorID" json:"operator,omitempty"`
 	IssueDate         string        `gorm:"type:date;not null" json:"issue_date"`
-	DepartureTime     string        `gorm:"type:time" json:"departure_time"`
+	DepartureTime     string        `gorm:"type:varchar(50)" json:"departure_time"`
 	JobDescription    string        `gorm:"type:text" json:"job_description"`
 	RecipientName     string        `gorm:"type:varchar(100)" json:"recipient_name"`
 	OperationalStatus string        `gorm:"type:enum('ASSIGNED','ON_THE_WAY','WORKING','FINISHED');default:'ASSIGNED'" json:"operational_status"`
