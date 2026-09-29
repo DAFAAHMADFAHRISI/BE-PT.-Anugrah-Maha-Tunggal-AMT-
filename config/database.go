@@ -68,6 +68,9 @@ func InitDB() *gorm.DB {
 		log.Println("Sukses: Migrasi database dan tabel berhasil diselaraskan.")
 	}
 
+	// Pastikan kolom departure_time bertipe VARCHAR(50) agar mendukung teks format jam bebas atau kosong
+	db.Exec("ALTER TABLE delivery_letters MODIFY COLUMN departure_time VARCHAR(50) NULL")
+
 	// Auto-seed data awal jika belum ada
 	seedInitialData(db)
 
