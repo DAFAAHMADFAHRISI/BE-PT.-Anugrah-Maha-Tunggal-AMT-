@@ -6,6 +6,8 @@ import (
 	"erp-anugrah-maha-tunggal/internal/domain"
 	"erp-anugrah-maha-tunggal/internal/repository"
 	"erp-anugrah-maha-tunggal/pkg/utils"
+
+	"gorm.io/gorm"
 )
 
 type AuthService interface {
@@ -30,15 +32,18 @@ func (s *authService) GetAllUsers() ([]domain.User, error) {
 func (s *authService) Login(username, password string) (string, *domain.User, error) {
 	user, err := s.userRepo.FindByUsername(username)
 	if err != nil {
-		return "", nil, errors.New("username atau password salah")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil, errors.New("Akun anda tidak terdaftar")
+		}
+		return "", nil, errors.New("Akun anda tidak terdaftar")
 	}
 
 	if !user.IsActive {
-		return "", nil, errors.New("akun Anda dinonaktifkan, silakan hubungi administrator")
+		return "", nil, errors.New("Akun Anda dinonaktifkan, silakan hubungi administrator")
 	}
 
 	if !utils.CheckPasswordHash(password, user.PasswordHash) {
-		return "", nil, errors.New("username atau password salah")
+		return "", nil, errors.New("Password anda salah")
 	}
 
 	token, err := utils.GenerateToken(user.ID, user.Username, string(user.Role), user.Name)
