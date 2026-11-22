@@ -135,6 +135,25 @@ func (s *deliveryService) UpdateOperationalStatus(id uint, newStatus, notes stri
 		// Order menjadi COMPLETED
 		_ = s.orderRepo.UpdateStatus(letter.RentalOrderID, "COMPLETED")
 
+		// Jalur Input (ERP -> SPK): Update variabel mentah C1 & C4 saat unit selesai disewa kembali ke garasi
+		unit, errU := s.unitRepo.FindByID(letter.UnitID)
+		if errU == nil && unit != nil {
+			addedHours := 8.0
+			order, errO := s.orderRepo.FindByID(letter.RentalOrderID)
+			if errO == nil && order != nil {
+				if order.RentalDurationType == "JAM" {
+					addedHours = float64(order.DurationValue)
+				} else if order.RentalDurationType == "HARI" {
+					addedHours = float64(order.DurationValue) * 8.0
+				} else {
+					addedHours = float64(order.DurationValue) * 8.0 * 25.0
+				}
+			}
+			unit.HourMeter += addedHours
+			unit.IdleDays = 1.0 // Reset hari bebas ke 1 hari karena baru kembali ke garasi
+			_ = s.unitRepo.Update(unit)
+		}
+
 		_ = s.deliveryRepo.CreateMovementLog(&domain.UnitMovementLog{
 			UnitID:           letter.UnitID,
 			DeliveryLetterID: &letter.ID,

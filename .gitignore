@@ -26,3 +26,8 @@ Thumbs.db
 
 # Node
 node_modules/
+
+# Sensitive data files
+database/*.csv
+database/*.xlsx
+database/*.xls
