@@ -32,12 +32,14 @@ func main() {
 	orderService := service.NewOrderService(orderRepo, unitRepo)
 	deliveryService := service.NewDeliveryService(deliveryRepo, orderRepo, unitRepo, operatorRepo)
 	dashboardService := service.NewDashboardService(unitRepo, orderRepo, customerRepo, deliveryRepo)
+	sawService := service.NewSAWService(db)
 
 	// 4. Inisialisasi Handlers
 	authHandler := handler.NewAuthHandler(authService)
 	masterHandler := handler.NewMasterHandler(masterService)
 	orderDeliveryHandler := handler.NewOrderDeliveryHandler(orderService, deliveryService)
 	dashboardHandler := handler.NewDashboardHandler(dashboardService)
+	sawHandler := handler.NewSAWHandler(sawService)
 
 	// 5. Setup Gin Router
 	r := gin.Default()
@@ -115,6 +117,25 @@ func main() {
 
 			// Log Pergerakan & Status Unit (Audit Trail)
 			protected.GET("/units/:unit_id/logs", orderDeliveryHandler.GetUnitMovementLogs)
+
+			// ================================================================
+			// MODUL SPK PEMELIHARAAN METODE SAW (SIMPLE ADDITIVE WEIGHTING)
+			// ================================================================
+			// Rekomendasi Prioritas & Eksekusi Hitung SAW
+			protected.GET("/saw/ranking", sawHandler.GetLatestRanking)
+			protected.POST("/saw/calculate", sawHandler.CalculateRanking)
+			protected.GET("/saw/criteria", sawHandler.GetCriteriaAndWeights)
+			protected.PUT("/saw/weights", sawHandler.UpdateWeights)
+			protected.GET("/saw/history", sawHandler.GetRankingHistory)
+
+			// Log Operasional Armada (Variabel C1..C4)
+			protected.GET("/operational-logs", sawHandler.GetOperationalLogs)
+			protected.POST("/operational-logs", sawHandler.CreateOperationalLog)
+
+			// Surat Perintah Kerja (SPK) Pemeliharaan Bengkel
+			protected.GET("/maintenance/spk", sawHandler.GetSPKMaintenanceList)
+			protected.POST("/maintenance/spk", sawHandler.CreateSPKMaintenance)
+			protected.GET("/maintenance/spk/:id", sawHandler.GetSPKMaintenanceByID)
 		}
 	}
 

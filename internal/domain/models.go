@@ -43,20 +43,27 @@ type Customer struct {
 
 // ForkliftUnit merepresentasikan aset alat berat / unit forklift
 type ForkliftUnit struct {
-	ID              uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	UnitCode        string    `gorm:"type:varchar(30);unique;not null" json:"unit_code"`
-	Brand           string    `gorm:"type:varchar(50);not null" json:"brand"`
-	Model           string    `gorm:"type:varchar(50)" json:"model"`
-	CapacityTon     float64   `gorm:"type:decimal(4,1);not null" json:"capacity_ton"`
-	FuelType        string    `gorm:"type:enum('Diesel','Electric','Gasoline','LPG');default:'Diesel'" json:"fuel_type"`
-	ManufactureYear int       `json:"manufacture_year"`
-	HourlyRate      float64   `gorm:"type:decimal(12,2);default:0" json:"hourly_rate"`
-	DailyRate       float64   `gorm:"type:decimal(12,2);default:0" json:"daily_rate"`
-	MonthlyRate     float64   `gorm:"type:decimal(12,2);default:0" json:"monthly_rate"`
-	Status          string    `gorm:"type:enum('AVAILABLE','RENTED','MAINTENANCE');default:'AVAILABLE'" json:"status"`
-	Notes           string    `gorm:"type:text" json:"notes"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                  uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	UnitCode            string    `gorm:"type:varchar(30);unique;not null" json:"unit_code"`
+	Brand               string    `gorm:"type:varchar(50);not null" json:"brand"`
+	Model               string    `gorm:"type:varchar(50)" json:"model"`
+	CapacityTon         float64   `gorm:"type:decimal(4,1);not null" json:"capacity_ton"`
+	FuelType            string    `gorm:"type:enum('Diesel','Electric','Gasoline','LPG');default:'Diesel'" json:"fuel_type"`
+	ManufactureYear     int       `json:"manufacture_year"`
+	HourlyRate          float64   `gorm:"type:decimal(12,2);default:0" json:"hourly_rate"`
+	DailyRate           float64   `gorm:"type:decimal(12,2);default:0" json:"daily_rate"`
+	MonthlyRate         float64   `gorm:"type:decimal(12,2);default:0" json:"monthly_rate"`
+	Status              string    `gorm:"type:enum('AVAILABLE','RENTED','MAINTENANCE');default:'AVAILABLE'" json:"status"`
+	Notes               string    `gorm:"type:text" json:"notes"`
+	// Kolom SPK Maintenance SAW
+	HourMeter           float64   `gorm:"type:decimal(10,2);default:0" json:"hour_meter"`           // C1 (Jam)
+	MachineAge          float64   `gorm:"type:decimal(5,2);default:0" json:"machine_age"`          // C2 (Tahun)
+	BreakdownFrequency  float64   `gorm:"type:decimal(5,2);default:0" json:"breakdown_frequency"`  // C3 (Kali)
+	IdleDays            float64   `gorm:"type:decimal(5,2);default:0" json:"idle_days"`            // C4 (Hari)
+	LastCalculatedScore float64   `gorm:"type:decimal(8,4);default:0" json:"last_calculated_score"` // Skor Vi
+	LastRiskStatus      string    `gorm:"type:varchar(20);default:'SAFE'" json:"last_risk_status"`  // CRITICAL / WARNING / SAFE
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // Operator merepresentasikan driver / teknisi operator forklift
@@ -141,4 +148,133 @@ type Invoice struct {
 	DueDate       *string      `gorm:"type:date" json:"due_date"`
 	CreatedAt     time.Time    `json:"created_at"`
 	UpdatedAt     time.Time    `json:"updated_at"`
+}
+
+// ====================================================================================
+// MODUL SPK PEMELIHARAAN FORKLIFT METODE SAW (SIMPLE ADDITIVE WEIGHTING)
+// ====================================================================================
+
+// Kriteria merepresentasikan master kriteria SPK (C1..C4)
+type Kriteria struct {
+	ID            uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Code          string    `gorm:"type:varchar(10);unique;not null" json:"code"`
+	Name          string    `gorm:"type:varchar(100);not null" json:"name"`
+	AttributeType string    `gorm:"type:enum('benefit','cost');default:'benefit'" json:"attribute_type"` // benefit atau cost
+	Unit          string    `gorm:"type:varchar(20)" json:"unit"`                                        // Jam, Tahun, Kali, Hari
+	Description   string    `gorm:"type:text" json:"description"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+func (Kriteria) TableName() string {
+	return "kriteria"
+}
+
+// BobotKriteria merepresentasikan bobot preferensi manajemen (W1..W4)
+type BobotKriteria struct {
+	ID         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	KriteriaID uint      `gorm:"not null" json:"kriteria_id"`
+	Kriteria   *Kriteria `gorm:"foreignKey:KriteriaID" json:"kriteria,omitempty"`
+	Weight     float64   `gorm:"type:decimal(6,4);not null" json:"weight"`      // e.g. 0.3000
+	Percentage float64   `gorm:"type:decimal(5,2);default:0" json:"percentage"` // e.g. 30.00
+	SetBy      *uint     `json:"set_by"`
+	User       *User     `gorm:"foreignKey:SetBy" json:"user,omitempty"`
+	Notes      string    `gorm:"type:text" json:"notes"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+func (BobotKriteria) TableName() string {
+	return "bobot_kriteria"
+}
+
+// OperationalLog mencatat log variabel mentah armada forklift
+type OperationalLog struct {
+	ID            uint          `gorm:"primaryKey;autoIncrement" json:"id"`
+	UnitID        uint          `gorm:"not null" json:"unit_id"`
+	Unit          *ForkliftUnit `gorm:"foreignKey:UnitID" json:"unit,omitempty"`
+	LogDate       string        `gorm:"type:date;not null" json:"log_date"`
+	HourMeter     float64       `gorm:"type:decimal(10,2);not null" json:"hour_meter"`     // C1 (Jam)
+	MachineAge    float64       `gorm:"type:decimal(5,2);not null" json:"machine_age"`     // C2 (Tahun)
+	BreakdownFreq float64       `gorm:"type:decimal(5,2);not null" json:"breakdown_freq"`  // C3 (Kali)
+	IdleDays      float64       `gorm:"type:decimal(5,2);not null" json:"idle_days"`       // C4 (Hari)
+	RecordedBy    *uint         `json:"recorded_by"`
+	Recorder      *User         `gorm:"foreignKey:RecordedBy" json:"recorder,omitempty"`
+	Notes         string        `gorm:"type:text" json:"notes"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
+}
+
+func (OperationalLog) TableName() string {
+	return "log_operasional"
+}
+
+// HasilRanking snapshot audit trail riwayat kalkulasi SAW
+type HasilRanking struct {
+	ID              uint            `gorm:"primaryKey;autoIncrement" json:"id"`
+	CalculationCode string          `gorm:"type:varchar(50);unique;not null" json:"calculation_code"`
+	CalculatedAt    time.Time       `json:"calculated_at"`
+	CalculatedBy    *uint           `json:"calculated_by"`
+	Calculator      *User           `gorm:"foreignKey:CalculatedBy" json:"calculator,omitempty"`
+	TotalUnits      int             `json:"total_units"`
+	CriticalCount   int             `json:"critical_count"` // Merah (Kritis)
+	WarningCount    int             `json:"warning_count"`  // Kuning (Waspada)
+	SafeCount       int             `json:"safe_count"`     // Hijau (Aman)
+	Notes           string          `gorm:"type:text" json:"notes"`
+	Details         []DetailRanking `gorm:"foreignKey:HasilRankingID" json:"details,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+}
+
+func (HasilRanking) TableName() string {
+	return "hasil_ranking"
+}
+
+// DetailRanking rincian peringkat per unit forklift dalam satu snapshot kalkulasi
+type DetailRanking struct {
+	ID             uint          `gorm:"primaryKey;autoIncrement" json:"id"`
+	HasilRankingID uint          `gorm:"not null" json:"hasil_ranking_id"`
+	UnitID         uint          `gorm:"not null" json:"unit_id"`
+	Unit           *ForkliftUnit `gorm:"foreignKey:UnitID" json:"unit,omitempty"`
+	RankOrder      int           `gorm:"not null" json:"rank_order"`
+	C1Raw          float64       `gorm:"type:decimal(10,2)" json:"c1_raw"`
+	C2Raw          float64       `gorm:"type:decimal(5,2)" json:"c2_raw"`
+	C3Raw          float64       `gorm:"type:decimal(5,2)" json:"c3_raw"`
+	C4Raw          float64       `gorm:"type:decimal(5,2)" json:"c4_raw"`
+	C1Normalized   float64       `gorm:"type:decimal(8,4)" json:"c1_normalized"`
+	C2Normalized   float64       `gorm:"type:decimal(8,4)" json:"c2_normalized"`
+	C3Normalized   float64       `gorm:"type:decimal(8,4)" json:"c3_normalized"`
+	C4Normalized   float64       `gorm:"type:decimal(8,4)" json:"c4_normalized"`
+	ScoreV         float64       `gorm:"type:decimal(8,4)" json:"score_v"` // Nilai Vi
+	RiskStatus     string        `gorm:"type:varchar(20)" json:"risk_status"` // CRITICAL, WARNING, SAFE
+	RiskColor      string        `gorm:"type:varchar(20)" json:"risk_color"`  // merah, kuning, hijau
+	Recommendation string        `gorm:"type:text" json:"recommendation"`
+	SPKStatus      string        `gorm:"type:varchar(20);default:'NONE'" json:"spk_status"` // NONE, ISSUED
+}
+
+func (DetailRanking) TableName() string {
+	return "detail_ranking"
+}
+
+// SPKMaintenance Surat Perintah Kerja (SPK) Pemeliharaan Bengkel
+type SPKMaintenance struct {
+	ID             uint          `gorm:"primaryKey;autoIncrement" json:"id"`
+	SPKNumber      string        `gorm:"type:varchar(50);unique;not null" json:"spk_number"`
+	UnitID         uint          `gorm:"not null" json:"unit_id"`
+	Unit           *ForkliftUnit `gorm:"foreignKey:UnitID" json:"unit,omitempty"`
+	RiskScore      float64       `gorm:"type:decimal(8,4)" json:"risk_score"`
+	RiskStatus     string        `gorm:"type:varchar(20)" json:"risk_status"`
+	MechanicName   string        `gorm:"type:varchar(100);not null" json:"mechanic_name"`
+	ComplaintNotes string        `gorm:"type:text;not null" json:"complaint_notes"`
+	ScheduledDate  string        `gorm:"type:date;not null" json:"scheduled_date"`
+	Status         string        `gorm:"type:enum('DRAFT','IN_PROGRESS','COMPLETED','CANCELLED');default:'IN_PROGRESS'" json:"status"`
+	IssuedBy       *uint         `json:"issued_by"`
+	Issuer         *User         `gorm:"foreignKey:IssuedBy" json:"issuer,omitempty"`
+	IssuedAt       time.Time     `json:"issued_at"`
+	Notes          string        `gorm:"type:text" json:"notes"`
+	CreatedAt      time.Time     `json:"created_at"`
+	UpdatedAt      time.Time     `json:"updated_at"`
+}
+
+func (SPKMaintenance) TableName() string {
+	return "spk_maintenance"
 }

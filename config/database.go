@@ -61,6 +61,13 @@ func InitDB() *gorm.DB {
 		&domain.DeliveryLetter{},
 		&domain.UnitMovementLog{},
 		&domain.Invoice{},
+		// Modul SPK Pemeliharaan SAW
+		&domain.Kriteria{},
+		&domain.BobotKriteria{},
+		&domain.OperationalLog{},
+		&domain.HasilRanking{},
+		&domain.DetailRanking{},
+		&domain.SPKMaintenance{},
 	)
 	if err != nil {
 		log.Printf("Peringatan saat migrasi tabel GORM: %v", err)
@@ -161,5 +168,65 @@ func seedInitialData(db *gorm.DB) {
 			{Nip: "OPR-02", Name: "Doni Kurniawan", Phone: "081344556677", SioNumber: "SIO-K3-2023-0145", Status: "STANDBY"},
 		}
 		db.Create(&operators)
+	}
+
+	// Seed Kriteria & Bobot SAW jika belum ada
+	seedKriteriaAndBobot(db)
+}
+
+func seedKriteriaAndBobot(db *gorm.DB) {
+	var kriteriaCount int64
+	db.Model(&domain.Kriteria{}).Count(&kriteriaCount)
+	if kriteriaCount == 0 {
+		defaultKriteria := []domain.Kriteria{
+			{
+				Code:          "C1",
+				Name:          "Total Jam Kerja (Hour Meter)",
+				AttributeType: "benefit",
+				Unit:          "Jam",
+				Description:   "Akumulasi jam operasional mesin forklift. Semakin tinggi jam kerja, semakin mendesak unit membutuhkan pemeliharaan/servis berkala.",
+			},
+			{
+				Code:          "C2",
+				Name:          "Usia Mesin",
+				AttributeType: "benefit",
+				Unit:          "Tahun",
+				Description:   "Usia operasional mesin unit forklift sejak tahun pembuatan. Semakin tua mesin, semakin tinggi risiko degradasi komponen mekanikal.",
+			},
+			{
+				Code:          "C3",
+				Name:          "Frekuensi Kerusakan",
+				AttributeType: "benefit",
+				Unit:          "Kali",
+				Description:   "Jumlah insiden kendala teknis atau perbaikan dalam 3 bulan terakhir. Semakin sering rusak, semakin tinggi prioritas pemeliharaan preventif/korektif.",
+			},
+			{
+				Code:          "C4",
+				Name:          "Sisa Hari Bebas Tugas (Idle Time)",
+				AttributeType: "benefit",
+				Unit:          "Hari",
+				Description:   "Jumlah hari unit berada di garasi/pool tanpa jadwal sewa. Semakin banyak hari bebas, semakin optimal kesempatan unit ditarik ke bengkel tanpa mengganggu operasional sewa klien.",
+			},
+		}
+
+		weights := map[string]float64{
+			"C1": 0.30, // 30%
+			"C2": 0.20, // 20%
+			"C3": 0.35, // 35%
+			"C4": 0.15, // 15%
+		}
+
+		for _, k := range defaultKriteria {
+			db.Create(&k)
+			w := weights[k.Code]
+			bobot := domain.BobotKriteria{
+				KriteriaID: k.ID,
+				Weight:     w,
+				Percentage: w * 100,
+				Notes:      fmt.Sprintf("Bobot preferensi awal kriteria %s sebesar %.0f%%", k.Code, w*100),
+			}
+			db.Create(&bobot)
+		}
+		log.Println("Seeder: 4 Master Kriteria dan Bobot Preferensi SAW (W1..W4) berhasil disiapkan.")
 	}
 }
