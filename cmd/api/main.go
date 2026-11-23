@@ -81,9 +81,9 @@ func main() {
 			protected.GET("/auth/profile", authHandler.GetProfile)
 			protected.GET("/users", authHandler.GetUsers)
 
-			// Dashboard Direktur (Hanya role 'direktur')
+			// Dashboard (Diizinkan untuk semua role untuk saat ini)
 			protected.GET("/dashboard/direktur",
-				middleware.RequireRole("direktur"),
+				middleware.RequireRole("direktur", "admin_staff", "operasional", "finance"),
 				dashboardHandler.GetDirekturDashboard,
 			)
 
