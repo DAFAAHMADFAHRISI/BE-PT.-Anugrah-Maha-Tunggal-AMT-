@@ -2,16 +2,24 @@ package main
 
 import (
 	"context"
+	_ "embed"
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
+	"time"
 
 	"erp-anugrah-maha-tunggal/config"
 	"erp-anugrah-maha-tunggal/internal/domain"
 	"erp-anugrah-maha-tunggal/internal/service"
-	"time"
+
 	"gorm.io/gorm"
 )
+
+//go:embed rental_orders_excel.csv
+var excelCSVData string
 
 func main() {
 	actionFlag := flag.String("action", "", "Aksi yang diinginkan: 'seed', 'clean', atau 'reset'")
@@ -409,19 +417,22 @@ func seedAllData(db *gorm.DB) {
 			calcResult.TotalUnits, calcResult.CriticalCount, calcResult.WarningCount, calcResult.SafeCount)
 	}
 
-	// 8. Seed Contoh Transaksi Order Sewa & Surat Jalan Aktif
-	orderDate := "2026-11-08"
-	startDate := "2026-11-09"
-	endDate := "2026-11-12"
+	// 8. Impor Seluruh Data Historis Transaksi Excel (Januari 2022)
+	seedExcelRentalOrders(db, users, units, operators, customers)
+
+	// 9. Seed Contoh Transaksi Order Sewa & Surat Jalan Aktif Tahun Berjalan (November 2026)
 	adminID := users[1].ID
 	unit7ID := units[7].ID // FK-07-01 (Sedang disewa)
+	unit3ID := units[3].ID // FK-03-01
+	unit0ID := units[0].ID // FK-2.5-01
 
-	sampleOrder := domain.RentalOrder{
+	endDate1 := "2026-11-12"
+	order1 := domain.RentalOrder{
 		OrderNumber:         "ORD-202611-0001",
 		CustomerID:          customers[0].ID, // PT. Metalindo Guna
-		OrderDate:           orderDate,
-		StartDate:           startDate,
-		EndDate:             &endDate,
+		OrderDate:           "2026-11-08",
+		StartDate:           "2026-11-09",
+		EndDate:             &endDate1,
 		RentalDurationType:  "HARI",
 		DurationValue:       3,
 		ProjectLocation:     "Kawasan PIK, Area Pergudangan Logistik Blok B-12",
@@ -435,11 +446,11 @@ func seedAllData(db *gorm.DB) {
 		Notes:               "Bongkar muatan alat berat dan material baja di dermaga PIK",
 		CreatedBy:           &adminID,
 	}
-	db.Create(&sampleOrder)
+	db.Create(&order1)
 
-	sampleSJ := domain.DeliveryLetter{
+	sj1 := domain.DeliveryLetter{
 		LetterNumber:      "SJ-202611-0001",
-		RentalOrderID:     sampleOrder.ID,
+		RentalOrderID:     order1.ID,
 		UnitID:            unit7ID,
 		OperatorID:        operators[1].ID, // Roni
 		IssueDate:         "2026-11-09",
@@ -449,9 +460,68 @@ func seedAllData(db *gorm.DB) {
 		OperationalStatus: "WORKING",
 		Notes:             "Unit dan operator bertugas di lokasi proyek PIK",
 	}
-	db.Create(&sampleSJ)
+	db.Create(&sj1)
 
-	// 9. Seed Contoh Dokumen SPK Pemeliharaan Bengkel Terbitan SAW
+	endDate2 := "2026-11-05"
+	order2 := domain.RentalOrder{
+		OrderNumber:         "ORD-202611-0002",
+		CustomerID:          customers[2].ID, // PT. Contena Pratama
+		OrderDate:           "2026-11-01",
+		StartDate:           "2026-11-02",
+		EndDate:             &endDate2,
+		RentalDurationType:  "HARI",
+		DurationValue:       4,
+		ProjectLocation:     "Sungai Tiram, Cilincing, Jakarta Utara",
+		LocationPicName:     "Pak Hendra",
+		LocationPicPhone:    "081234567893",
+		RequiredCapacityTon: 3.0,
+		UnitID:              &unit3ID,
+		AgreedPrice:         4500000,
+		Status:              "COMPLETED",
+		PoReference:         "PO-CP/XI/2026/012",
+		Notes:               "Sewa forklift 3 ton penataan depo kontainer",
+		CreatedBy:           &adminID,
+	}
+	db.Create(&order2)
+
+	sj2 := domain.DeliveryLetter{
+		LetterNumber:      "SJ-202611-0002",
+		RentalOrderID:     order2.ID,
+		UnitID:            unit3ID,
+		OperatorID:        operators[2].ID, // Oni
+		IssueDate:         "2026-11-02",
+		DepartureTime:     "09:00:00",
+		JobDescription:    "Penataan kargo depo",
+		RecipientName:     "Pak Hendra",
+		OperationalStatus: "FINISHED",
+		Notes:             "Operasional selesai dengan baik",
+	}
+	db.Create(&sj2)
+
+	endDate3 := "2026-11-20"
+	order3 := domain.RentalOrder{
+		OrderNumber:         "ORD-202611-0003",
+		CustomerID:          customers[1].ID, // PT. Fajar Bahari
+		OrderDate:           "2026-11-14",
+		StartDate:           "2026-11-15",
+		EndDate:             &endDate3,
+		RentalDurationType:  "HARI",
+		DurationValue:       5,
+		ProjectLocation:     "Marunda Center Blok A, Jakarta Utara",
+		LocationPicName:     "Ibu Siska",
+		LocationPicPhone:    "081234567892",
+		RequiredCapacityTon: 2.5,
+		UnitID:              &unit0ID,
+		AgreedPrice:         3500000,
+		Status:              "PENDING",
+		PoReference:         "PO-FB/XI/2026/089",
+		Notes:               "Menunggu verifikasi DP sewa",
+		CreatedBy:           &adminID,
+	}
+	db.Create(&order3)
+	fmt.Println("   - Transaksi sewa aktif & berjalan (2026-11) berhasil disiapkan.")
+
+	// 10. Seed Contoh Dokumen SPK Pemeliharaan Bengkel Terbitan SAW
 	// Unit FK-10-01 (Kapasitas 10 Ton, Kritis) diterbitkan SPK
 	unit10ID := units[9].ID // FK-10-01
 	direkturID := users[0].ID
@@ -470,4 +540,157 @@ func seedAllData(db *gorm.DB) {
 	}
 	db.Create(&sampleSPK)
 	fmt.Println("   - Contoh Surat Perintah Kerja (SPK) Bengkel berhasil diterbitkan.")
+}
+
+// seedExcelRentalOrders mem-parsing CSV excel_data dan memasukkannya ke database
+func seedExcelRentalOrders(db *gorm.DB, users []domain.User, units []domain.ForkliftUnit, operators []domain.Operator, initialCustomers []domain.Customer) {
+	fmt.Println("⏳ Mengimpor Transaksi Sewa & Surat Jalan dari Excel (Januari 2022)...")
+
+	reader := csv.NewReader(strings.NewReader(excelCSVData))
+	rows, err := reader.ReadAll()
+	if err != nil {
+		log.Printf("Peringatan: Gagal membaca CSV seeder: %v", err)
+		return
+	}
+
+	if len(rows) <= 1 {
+		log.Println("Peringatan: Data CSV kosong.")
+		return
+	}
+
+	customerMap := make(map[string]uint)
+	for _, c := range initialCustomers {
+		customerMap[strings.ToLower(strings.TrimSpace(c.Name))] = c.ID
+	}
+
+	unitCodeMap := make(map[string]uint)
+	unitCapMap := make(map[float64][]uint)
+	for _, u := range units {
+		unitCodeMap[u.UnitCode] = u.ID
+		unitCapMap[u.CapacityTon] = append(unitCapMap[u.CapacityTon], u.ID)
+	}
+
+	operatorMap := make(map[string]uint)
+	for _, o := range operators {
+		operatorMap[strings.ToLower(strings.TrimSpace(o.Name))] = o.ID
+	}
+
+	adminID := users[1].ID
+	importedCount := 0
+	custSeq := 30
+
+	for idx, row := range rows[1:] {
+		if len(row) < 11 {
+			continue
+		}
+		tgl := strings.TrimSpace(row[0])
+		kwitansi := strings.TrimSpace(row[1])
+		custName := strings.TrimSpace(row[2])
+		uangMasuk := strings.TrimSpace(row[4])
+		alamat := strings.TrimSpace(row[5])
+		kodeUnit := strings.TrimSpace(row[6])
+		kapasitasRaw := strings.TrimSpace(row[7])
+		hargaRaw := strings.TrimSpace(row[8])
+		oprName := strings.TrimSpace(row[9])
+		jamBerangkat := strings.TrimSpace(row[10])
+
+		if tgl == "" || kwitansi == "" || custName == "" {
+			continue
+		}
+
+		kapClean := strings.ReplaceAll(kapasitasRaw, "T", "")
+		kapClean = strings.ReplaceAll(kapClean, "t", "")
+		kapClean = strings.ReplaceAll(kapClean, ",", ".")
+		kapClean = strings.TrimSpace(kapClean)
+		kapasitas, _ := strconv.ParseFloat(kapClean, 64)
+		if kapasitas == 0 {
+			kapasitas = 2.5
+		}
+
+		harga, _ := strconv.ParseFloat(strings.TrimSpace(hargaRaw), 64)
+
+		jamFormatted := strings.ReplaceAll(jamBerangkat, ".", ":")
+		if len(jamFormatted) == 5 {
+			jamFormatted += ":00"
+		} else if jamFormatted == "" {
+			jamFormatted = "08:00:00"
+		}
+
+		custKey := strings.ToLower(custName)
+		custID, ok := customerMap[custKey]
+		if !ok {
+			custSeq++
+			newCust := domain.Customer{
+				CustomerCode: fmt.Sprintf("CUST-%03d", custSeq),
+				Name:         custName,
+				Type:         "Perorangan",
+				PicName:      custName,
+				Phone:        fmt.Sprintf("08129999%04d", custSeq),
+				Email:        fmt.Sprintf("cust%d@amt.co.id", custSeq),
+				Address:      alamat,
+			}
+			db.Create(&newCust)
+			customerMap[custKey] = newCust.ID
+			custID = newCust.ID
+		}
+
+		var unitID uint
+		if kodeUnit != "" && unitCodeMap[kodeUnit] != 0 {
+			unitID = unitCodeMap[kodeUnit]
+		} else if list, ok := unitCapMap[kapasitas]; ok && len(list) > 0 {
+			unitID = list[idx%len(list)]
+		} else {
+			unitID = units[0].ID
+		}
+
+		var oprID uint
+		if opId, ok := operatorMap[strings.ToLower(oprName)]; ok {
+			oprID = opId
+		} else {
+			oprID = operators[0].ID
+		}
+
+		orderNumber := fmt.Sprintf("ORD-202201-%04d", idx+1)
+		order := domain.RentalOrder{
+			OrderNumber:         orderNumber,
+			CustomerID:          custID,
+			OrderDate:           tgl,
+			StartDate:           tgl,
+			EndDate:             &tgl,
+			RentalDurationType:  "HARI",
+			DurationValue:       1,
+			ProjectLocation:     alamat,
+			LocationPicName:     custName,
+			LocationPicPhone:    "081234567890",
+			RequiredCapacityTon: kapasitas,
+			UnitID:              &unitID,
+			AgreedPrice:         harga,
+			Status:              "COMPLETED",
+			PoReference:         fmt.Sprintf("KW-%s", kwitansi),
+			Notes:               fmt.Sprintf("Transaksi sewa historis Excel (Penerima: %s)", uangMasuk),
+			CreatedBy:           &adminID,
+		}
+		if err := db.Create(&order).Error; err != nil {
+			continue
+		}
+
+		sjNumber := fmt.Sprintf("SJ-202201-%04d", idx+1)
+		sj := domain.DeliveryLetter{
+			LetterNumber:      sjNumber,
+			RentalOrderID:     order.ID,
+			UnitID:            unitID,
+			OperatorID:        oprID,
+			IssueDate:         tgl,
+			DepartureTime:     jamFormatted,
+			JobDescription:    fmt.Sprintf("Operasional bongkar muat di %s", alamat),
+			RecipientName:     custName,
+			OperationalStatus: "FINISHED",
+			Notes:             "Surat jalan selesai operasional",
+		}
+		db.Create(&sj)
+
+		importedCount++
+	}
+
+	fmt.Printf("   - %d Transaksi Order & Surat Jalan Excel (2022-01) berhasil diimpor ke DB.\n", importedCount)
 }
