@@ -1,9 +1,17 @@
 package service
 
 import (
+	"fmt"
+	"sort"
+
 	"erp-anugrah-maha-tunggal/internal/domain"
 	"erp-anugrah-maha-tunggal/internal/repository"
 )
+
+type PeriodYear struct {
+	Year   int   `json:"year"`
+	Months []int `json:"months"`
+}
 
 type DashboardMetrics struct {
 	UnitStats struct {
@@ -20,6 +28,9 @@ type DashboardMetrics struct {
 	TotalCustomers   int64                   `json:"total_customers"`
 	ActiveOperations []domain.DeliveryLetter `json:"active_operations"`
 	RecentOrders     []domain.RentalOrder    `json:"recent_orders"`
+	AllOrders        []domain.RentalOrder    `json:"all_orders"`
+	AllOperations    []domain.DeliveryLetter `json:"all_operations"`
+	AvailablePeriods []PeriodYear            `json:"available_periods"`
 }
 
 type DashboardService interface {
@@ -47,6 +58,58 @@ func NewDashboardService(
 	}
 }
 
+func extractAvailablePeriods(orders []domain.RentalOrder, letters []domain.DeliveryLetter) []PeriodYear {
+	yearMap := make(map[int]map[int]bool)
+
+	addDate := func(dateStr string) {
+		if len(dateStr) >= 7 {
+			var y, m int
+			if n, _ := fmt.Sscanf(dateStr[:7], "%d-%d", &y, &m); n == 2 && y > 2000 {
+				if _, ok := yearMap[y]; !ok {
+					yearMap[y] = make(map[int]bool)
+				}
+				yearMap[y][m] = true
+			}
+		}
+	}
+
+	for _, o := range orders {
+		if o.StartDate != "" {
+			addDate(o.StartDate)
+		} else if o.OrderDate != "" {
+			addDate(o.OrderDate)
+		}
+	}
+
+	for _, l := range letters {
+		if l.IssueDate != "" {
+			addDate(l.IssueDate)
+		}
+	}
+
+	// Urutkan tahun descending (misal 2026, 2022)
+	var years []int
+	for y := range yearMap {
+		years = append(years, y)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(years)))
+
+	var result []PeriodYear
+	for _, y := range years {
+		var months []int
+		for m := range yearMap[y] {
+			months = append(months, m)
+		}
+		sort.Ints(months)
+		result = append(result, PeriodYear{
+			Year:   y,
+			Months: months,
+		})
+	}
+
+	return result
+}
+
 func (s *dashboardService) GetDirekturDashboardData() (*DashboardMetrics, error) {
 	metrics := &DashboardMetrics{}
 
@@ -61,8 +124,9 @@ func (s *dashboardService) GetDirekturDashboardData() (*DashboardMetrics, error)
 	custCount, _ := s.customerRepo.Count()
 	metrics.TotalCustomers = custCount
 
-	// Statistik Order
+	// Statistik Order & Seluruh Data Order
 	allOrders, _ := s.orderRepo.FindAll("")
+	metrics.AllOrders = allOrders
 	for _, o := range allOrders {
 		switch o.Status {
 		case "PENDING":
@@ -74,15 +138,16 @@ func (s *dashboardService) GetDirekturDashboardData() (*DashboardMetrics, error)
 		}
 	}
 
-	// 5 Recent Orders
-	if len(allOrders) > 5 {
-		metrics.RecentOrders = allOrders[:5]
+	// 10 Recent Orders untuk list ringkasan
+	if len(allOrders) > 10 {
+		metrics.RecentOrders = allOrders[:10]
 	} else {
 		metrics.RecentOrders = allOrders
 	}
 
-	// Active Operations (ASSIGNED, ON_THE_WAY, WORKING)
+	// Seluruh Surat Jalan Operasional
 	allLetters, _ := s.deliveryRepo.FindAll("")
+	metrics.AllOperations = allLetters
 	var activeOps []domain.DeliveryLetter
 	for _, l := range allLetters {
 		if l.OperationalStatus == "WORKING" || l.OperationalStatus == "ON_THE_WAY" || l.OperationalStatus == "ASSIGNED" {
@@ -90,6 +155,9 @@ func (s *dashboardService) GetDirekturDashboardData() (*DashboardMetrics, error)
 		}
 	}
 	metrics.ActiveOperations = activeOps
+
+	// Ekstrak periode tahun & bulan yang riil ada di database
+	metrics.AvailablePeriods = extractAvailablePeriods(allOrders, allLetters)
 
 	return metrics, nil
 }
