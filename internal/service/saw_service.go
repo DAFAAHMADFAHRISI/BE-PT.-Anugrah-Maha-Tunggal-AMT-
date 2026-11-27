@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"time"
 
 	"erp-anugrah-maha-tunggal/internal/domain"
@@ -55,15 +56,16 @@ type SAWAlternativeResult struct {
 
 // SAWCalculationResult struct output lengkap kalkulasi SAW
 type SAWCalculationResult struct {
-	Criteria      []SAWCriteria          `json:"criteria"`
-	Alternatives  []SAWAlternativeResult `json:"alternatives"`
-	MaxValues     map[string]float64     `json:"max_values"`
-	MinValues     map[string]float64     `json:"min_values"`
-	TotalUnits    int                    `json:"total_units"`
-	CriticalCount int                    `json:"critical_count"`
-	WarningCount  int                    `json:"warning_count"`
-	SafeCount     int                    `json:"safe_count"`
-	CalculatedAt  time.Time              `json:"calculated_at"`
+	Criteria       []SAWCriteria          `json:"criteria"`
+	Alternatives   []SAWAlternativeResult `json:"alternatives"`
+	MaxValues      map[string]float64     `json:"max_values"`
+	MinValues      map[string]float64     `json:"min_values"`
+	TotalUnits     int                    `json:"total_units"`
+	CriticalCount  int                    `json:"critical_count"`
+	WarningCount   int                    `json:"warning_count"`
+	SafeCount      int                    `json:"safe_count"`
+	CalculatedAt   time.Time              `json:"calculated_at"`
+	AvailableYears []int                  `json:"available_years,omitempty"`
 }
 
 // ComputeSAW menjalankan fungsi komputasi murni algoritma SAW terisolasi
@@ -231,8 +233,8 @@ type SAWService interface {
 	GetCriteriaAndWeights(ctx context.Context) ([]domain.Kriteria, []domain.BobotKriteria, error)
 	UpdateWeights(ctx context.Context, weights []WeightInputRequest, userID *uint) error
 	CalculateAndSave(ctx context.Context, userID *uint, notes string) (*SAWCalculationResult, error)
-	GetLatestRanking(ctx context.Context) (*SAWCalculationResult, error)
-	GetRankingHistory(ctx context.Context, limit int) ([]domain.HasilRanking, error)
+	GetLatestRanking(ctx context.Context, year string) (*SAWCalculationResult, error)
+	GetRankingHistory(ctx context.Context, limit int, year string) ([]domain.HasilRanking, error)
 
 	// Log Operasional
 	CreateOperationalLog(ctx context.Context, req OperationalLogRequest, userID *uint) (*domain.OperationalLog, error)
@@ -473,33 +475,14 @@ func (s *sawService) CalculateAndSave(ctx context.Context, userID *uint, notes s
 	return calcResult, nil
 }
 
-// GetLatestRanking mengambil ranking rekomendasi terkini
-func (s *sawService) GetLatestRanking(ctx context.Context) (*SAWCalculationResult, error) {
-	var latestSnapshot domain.HasilRanking
-	err := s.db.WithContext(ctx).Order("calculated_at DESC").First(&latestSnapshot).Error
-	if err != nil {
-		// Jika belum ada snapshot, hitung langsung
-		return s.CalculateAndSave(ctx, nil, "Kalkulasi inisialisasi awal")
-	}
-
-	var details []domain.DetailRanking
-	if err := s.db.WithContext(ctx).
-		Preload("Unit").
-		Where("hasil_ranking_id = ?", latestSnapshot.ID).
-		Order("rank_order ASC").
-		Find(&details).Error; err != nil {
-		return nil, err
-	}
-
-	// Periksa apakah unit sudah punya SPK aktif
-	var activeSPKUnitIDs []uint
-	s.db.WithContext(ctx).Model(&domain.SPKMaintenance{}).
-		Where("status IN ('DRAFT', 'IN_PROGRESS')").
-		Pluck("unit_id", &activeSPKUnitIDs)
-	activeSPKMap := make(map[uint]bool)
-	for _, id := range activeSPKUnitIDs {
-		activeSPKMap[id] = true
-	}
+// GetLatestRanking mengambil ranking rekomendasi terkini (opsional filter per tahun)
+func (s *sawService) GetLatestRanking(ctx context.Context, year string) (*SAWCalculationResult, error) {
+	// Ambil daftar tahun yang tersedia dari snapshot hasil_ranking
+	var availableYears []int
+	s.db.WithContext(ctx).Model(&domain.HasilRanking{}).
+		Select("DISTINCT YEAR(calculated_at)").
+		Order("YEAR(calculated_at) DESC").
+		Pluck("YEAR(calculated_at)", &availableYears)
 
 	var bobotList []domain.BobotKriteria
 	s.db.WithContext(ctx).Preload("Kriteria").Find(&bobotList)
@@ -513,6 +496,61 @@ func (s *sawService) GetLatestRanking(ctx context.Context) (*SAWCalculationResul
 			Weight:        b.Weight,
 			Unit:          b.Kriteria.Unit,
 		}
+	}
+
+	var latestSnapshot domain.HasilRanking
+	query := s.db.WithContext(ctx).Order("calculated_at DESC")
+	if year != "" && year != "ALL" {
+		if yInt, err := strconv.Atoi(year); err == nil {
+			query = query.Where("YEAR(calculated_at) = ?", yInt)
+		}
+	}
+
+	err := query.First(&latestSnapshot).Error
+	if err != nil {
+		if year == "" || year == "ALL" {
+			// Jika belum ada snapshot sama sekali, hitung langsung
+			res, calcErr := s.CalculateAndSave(ctx, nil, "Kalkulasi inisialisasi awal")
+			if calcErr == nil && res != nil {
+				res.AvailableYears = []int{time.Now().Year()}
+			}
+			return res, calcErr
+		}
+		// Jika filter tahun spesifik tapi belum ada snapshot pada tahun tersebut
+		return &SAWCalculationResult{
+			Criteria:       criteria,
+			Alternatives:   []SAWAlternativeResult{},
+			TotalUnits:     0,
+			CriticalCount:  0,
+			WarningCount:   0,
+			SafeCount:      0,
+			AvailableYears: availableYears,
+		}, nil
+	}
+
+	var details []domain.DetailRanking
+	if err := s.db.WithContext(ctx).
+		Preload("Unit").
+		Where("hasil_ranking_id = ?", latestSnapshot.ID).
+		Order("rank_order ASC").
+		Find(&details).Error; err != nil {
+		return nil, err
+	}
+
+	// Periksa apakah unit sudah punya SPK (aktif atau pada tahun terkait)
+	var activeSPKUnitIDs []uint
+	spkQuery := s.db.WithContext(ctx).Model(&domain.SPKMaintenance{})
+	if year != "" && year != "ALL" {
+		if yInt, err := strconv.Atoi(year); err == nil {
+			spkQuery = spkQuery.Where("YEAR(issued_at) = ? OR scheduled_date LIKE ?", yInt, fmt.Sprintf("%d-%%", yInt))
+		}
+	} else {
+		spkQuery = spkQuery.Where("status IN ('DRAFT', 'IN_PROGRESS')")
+	}
+	spkQuery.Pluck("unit_id", &activeSPKUnitIDs)
+	activeSPKMap := make(map[uint]bool)
+	for _, id := range activeSPKUnitIDs {
+		activeSPKMap[id] = true
 	}
 
 	alts := make([]SAWAlternativeResult, len(details))
@@ -561,27 +599,30 @@ func (s *sawService) GetLatestRanking(ctx context.Context) (*SAWCalculationResul
 	}
 
 	return &SAWCalculationResult{
-		Criteria:      criteria,
-		Alternatives:  alts,
-		TotalUnits:    latestSnapshot.TotalUnits,
-		CriticalCount: latestSnapshot.CriticalCount,
-		WarningCount:  latestSnapshot.WarningCount,
-		SafeCount:     latestSnapshot.SafeCount,
-		CalculatedAt:  latestSnapshot.CalculatedAt,
+		Criteria:       criteria,
+		Alternatives:   alts,
+		TotalUnits:     latestSnapshot.TotalUnits,
+		CriticalCount:  latestSnapshot.CriticalCount,
+		WarningCount:   latestSnapshot.WarningCount,
+		SafeCount:      latestSnapshot.SafeCount,
+		CalculatedAt:   latestSnapshot.CalculatedAt,
+		AvailableYears: availableYears,
 	}, nil
 }
 
 // GetRankingHistory mengambil riwayat snapshot hasil perhitungan SAW
-func (s *sawService) GetRankingHistory(ctx context.Context, limit int) ([]domain.HasilRanking, error) {
+func (s *sawService) GetRankingHistory(ctx context.Context, limit int, year string) ([]domain.HasilRanking, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 	var history []domain.HasilRanking
-	err := s.db.WithContext(ctx).
-		Preload("Calculator").
-		Order("calculated_at DESC").
-		Limit(limit).
-		Find(&history).Error
+	query := s.db.WithContext(ctx).Preload("Calculator").Order("calculated_at DESC")
+	if year != "" && year != "ALL" {
+		if yInt, err := strconv.Atoi(year); err == nil {
+			query = query.Where("YEAR(calculated_at) = ?", yInt)
+		}
+	}
+	err := query.Limit(limit).Find(&history).Error
 	return history, err
 }
 

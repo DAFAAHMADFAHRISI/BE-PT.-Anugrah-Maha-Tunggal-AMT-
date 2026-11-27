@@ -19,7 +19,8 @@ func NewSAWHandler(sawService service.SAWService) *SAWHandler {
 
 // GetLatestRanking GET /api/v1/saw/ranking
 func (h *SAWHandler) GetLatestRanking(c *gin.Context) {
-	result, err := h.sawService.GetLatestRanking(c.Request.Context())
+	year := c.Query("year")
+	result, err := h.sawService.GetLatestRanking(c.Request.Context(), year)
 	if err != nil {
 		response.InternalServerError(c, "Gagal mengambil rekomendasi ranking SAW", err.Error())
 		return
@@ -97,8 +98,9 @@ func (h *SAWHandler) UpdateWeights(c *gin.Context) {
 func (h *SAWHandler) GetRankingHistory(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "10")
 	limit, _ := strconv.Atoi(limitStr)
+	year := c.Query("year")
 
-	history, err := h.sawService.GetRankingHistory(c.Request.Context(), limit)
+	history, err := h.sawService.GetRankingHistory(c.Request.Context(), limit, year)
 	if err != nil {
 		response.InternalServerError(c, "Gagal mengambil riwayat ranking SAW", err.Error())
 		return
