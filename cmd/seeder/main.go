@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -407,9 +408,85 @@ func seedAllData(db *gorm.DB) {
 	}
 	fmt.Printf("   - %d Log Operasional Armada awal berhasil direkam.\n", len(units))
 
-	// 7. Eksekusi Engine SAW Pertama Kali untuk Menghasilkan Snapshot Ranking Awal
+	// 7. Eksekusi Engine SAW untuk Snapshot Historis 2022 (Dataset Excel) & Snapshot Terkini 2026
+	// 7a. Snapshot Historis Tahun 2022 (akhir Januari 2022)
+	date2022Snap, _ := time.Parse("2006-01-02 15:04:05", "2022-01-31 17:00:00")
+	var kriteriaDB []domain.Kriteria
+	db.Order("code ASC").Find(&kriteriaDB)
+	sawCriteria := make([]service.SAWCriteria, len(kriteriaDB))
+	for i, k := range kriteriaDB {
+		sawCriteria[i] = service.SAWCriteria{
+			ID:            k.ID,
+			Code:          k.Code,
+			Name:          k.Name,
+			AttributeType: k.AttributeType,
+			Weight:        weights[k.Code],
+			Unit:          k.Unit,
+		}
+	}
+	alts2022 := make([]service.SAWAlternative, len(units))
+	for i, u := range units {
+		hm2022 := math.Round(u.HourMeter * 0.45)
+		age2022 := math.Max(1, u.MachineAge-4)
+		bf2022 := math.Max(0, math.Round(u.BreakdownFrequency*0.4))
+		idle2022 := math.Max(1, math.Round(u.IdleDays*0.7))
+		alts2022[i] = service.SAWAlternative{
+			UnitID:      u.ID,
+			UnitCode:    u.UnitCode,
+			Brand:       u.Brand,
+			Model:       u.Model,
+			CapacityTon: u.CapacityTon,
+			RawValues: map[string]float64{
+				"C1": hm2022,
+				"C2": age2022,
+				"C3": bf2022,
+				"C4": idle2022,
+			},
+		}
+	}
+	if res2022, err2022 := service.ComputeSAW(alts2022, sawCriteria); err2022 == nil {
+		snap2022 := domain.HasilRanking{
+			CalculationCode: "SAW-20220131-0001",
+			CalculatedAt:    date2022Snap,
+			CalculatedBy:    &users[0].ID,
+			TotalUnits:      res2022.TotalUnits,
+			CriticalCount:   res2022.CriticalCount,
+			WarningCount:    res2022.WarningCount,
+			SafeCount:       res2022.SafeCount,
+			Notes:           "Snapshot SAW periode historis Januari 2022 (berdasarkan rekap operasional Excel)",
+		}
+		db.Create(&snap2022)
+		for _, alt := range res2022.Alternatives {
+			spkSt := "NONE"
+			if alt.UnitID == units[5].ID || alt.UnitID == units[7].ID {
+				spkSt = "ISSUED"
+			}
+			db.Create(&domain.DetailRanking{
+				HasilRankingID: snap2022.ID,
+				UnitID:         alt.UnitID,
+				RankOrder:      alt.RankOrder,
+				C1Raw:          alt.RawValues["C1"],
+				C2Raw:          alt.RawValues["C2"],
+				C3Raw:          alt.RawValues["C3"],
+				C4Raw:          alt.RawValues["C4"],
+				C1Normalized:   alt.NormalizedValues["C1"],
+				C2Normalized:   alt.NormalizedValues["C2"],
+				C3Normalized:   alt.NormalizedValues["C3"],
+				C4Normalized:   alt.NormalizedValues["C4"],
+				ScoreV:         alt.ScoreV,
+				RiskStatus:     alt.RiskStatus,
+				RiskColor:      alt.RiskColor,
+				Recommendation: alt.Recommendation,
+				SPKStatus:      spkSt,
+			})
+		}
+		fmt.Printf("   - Snapshot SAW Historis 2022 berhasil dibuat (%d unit: Kritis=%d, Waspada=%d, Aman=%d).\n",
+			res2022.TotalUnits, res2022.CriticalCount, res2022.WarningCount, res2022.SafeCount)
+	}
+
+	// 7b. Eksekusi Engine SAW Terkini (2026) untuk Menghasilkan Snapshot Ranking Saat Ini
 	sawSvc := service.NewSAWService(db)
-	calcResult, err := sawSvc.CalculateAndSave(context.Background(), &users[0].ID, "Kalkulasi inisialisasi sistem SPK berbasis dataset Excel")
+	calcResult, err := sawSvc.CalculateAndSave(context.Background(), &users[0].ID, "Kalkulasi inisialisasi sistem SPK armada tahun berjalan")
 	if err != nil {
 		log.Printf("Peringatan kalkulasi SAW awal: %v", err)
 	} else {
