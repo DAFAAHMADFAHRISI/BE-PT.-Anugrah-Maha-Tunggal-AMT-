@@ -522,24 +522,60 @@ func seedAllData(db *gorm.DB) {
 	fmt.Println("   - Transaksi sewa aktif & berjalan (2026-11) berhasil disiapkan.")
 
 	// 10. Seed Contoh Dokumen SPK Pemeliharaan Bengkel Terbitan SAW
-	// Unit FK-10-01 (Kapasitas 10 Ton, Kritis) diterbitkan SPK
+	// Seed SPK untuk 2022 (sesuai periode data transaksi Excel) dan 2026
 	unit10ID := units[9].ID // FK-10-01
+	unit05ID := units[5].ID // FK-05-01
+	unit07ID := units[7].ID // FK-07-01
 	direkturID := users[0].ID
-	sampleSPK := domain.SPKMaintenance{
-		SPKNumber:      "SPK-MT-20261110-001",
-		UnitID:         unit10ID,
-		RiskScore:      0.8250,
-		RiskStatus:     "CRITICAL",
-		MechanicName:   "Bp. Slamet Riyadi (Kepala Mekanik Bengkel)",
-		ComplaintNotes: "Overhaul sistem hidrolik silinder utama, kuras oli transmisi, dan penggantian filter solar & oli berkala",
-		ScheduledDate:  "2026-11-12",
-		Status:         "IN_PROGRESS",
-		IssuedBy:       &direkturID,
-		IssuedAt:       time.Now(),
-		Notes:          "Diterbitkan otomatis via SPK Rekomendasi SAW. Unit berstatus Under Maintenance.",
+
+	date2022_1, _ := time.Parse("2006-01-02", "2022-01-14")
+	date2022_2, _ := time.Parse("2006-01-02", "2022-01-23")
+
+	sampleSPKs := []domain.SPKMaintenance{
+		{
+			SPKNumber:      "SPK-MT-20220115-001",
+			UnitID:         unit05ID,
+			RiskScore:      0.7650,
+			RiskStatus:     "CRITICAL",
+			MechanicName:   "Bp. Slamet Riyadi (Kepala Mekanik Bengkel)",
+			ComplaintNotes: "Penggantian silinder kopling dan servis berkala 250 jam kerja",
+			ScheduledDate:  "2022-01-15",
+			Status:         "COMPLETED",
+			IssuedBy:       &direkturID,
+			IssuedAt:       date2022_1,
+			Notes:          "Diterbitkan otomatis via SPK Rekomendasi SAW. Perawatan tuntas.",
+		},
+		{
+			SPKNumber:      "SPK-MT-20220124-002",
+			UnitID:         unit07ID,
+			RiskScore:      0.6800,
+			RiskStatus:     "WARNING",
+			MechanicName:   "Bp. Slamet Riyadi (Kepala Mekanik Bengkel)",
+			ComplaintNotes: "Pengecekan rem tangan dan kebocoran selang oli hidrolik mast",
+			ScheduledDate:  "2022-01-24",
+			Status:         "COMPLETED",
+			IssuedBy:       &direkturID,
+			IssuedAt:       date2022_2,
+			Notes:          "Perawatan pencegahan preventif berkala.",
+		},
+		{
+			SPKNumber:      "SPK-MT-20261110-001",
+			UnitID:         unit10ID,
+			RiskScore:      0.8250,
+			RiskStatus:     "CRITICAL",
+			MechanicName:   "Bp. Slamet Riyadi (Kepala Mekanik Bengkel)",
+			ComplaintNotes: "Overhaul sistem hidrolik silinder utama, kuras oli transmisi, dan penggantian filter solar & oli berkala",
+			ScheduledDate:  "2026-11-12",
+			Status:         "IN_PROGRESS",
+			IssuedBy:       &direkturID,
+			IssuedAt:       time.Now(),
+			Notes:          "Diterbitkan otomatis via SPK Rekomendasi SAW. Unit berstatus Under Maintenance.",
+		},
 	}
-	db.Create(&sampleSPK)
-	fmt.Println("   - Contoh Surat Perintah Kerja (SPK) Bengkel berhasil diterbitkan.")
+	for _, spk := range sampleSPKs {
+		db.Create(&spk)
+	}
+	fmt.Println("   - Contoh Surat Perintah Kerja (SPK) Bengkel (2022 & 2026) berhasil diterbitkan.")
 }
 
 // seedExcelRentalOrders mem-parsing CSV excel_data dan memasukkannya ke database
